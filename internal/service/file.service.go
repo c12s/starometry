@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"io"
 	"os"
+	"path/filepath"
 
 	"github.com/c12s/metrics/internal/errors"
 )
@@ -12,6 +13,18 @@ type LocalFileService struct{}
 
 func NewLocalFileService() *LocalFileService {
 	return &LocalFileService{}
+}
+
+func C12sStateDir() string {
+	dir := os.Getenv("NODE_ID_DIR_PATH")
+	if dir == "" {
+		dir = "/var/lib/c12s"
+	}
+	return dir
+}
+
+func C12sFilePath(fileName string) string {
+	return filepath.Join(C12sStateDir(), fileName)
 }
 func (fs *LocalFileService) WriteToFile(filename string, data []byte) error {
 	return fs.writeFile(filename, data, os.O_CREATE|os.O_WRONLY|os.O_TRUNC)

@@ -145,7 +145,7 @@ func (app *App) GracefulStop() {
 }
 
 func (app *App) initializeNodeID(fileService *service.LocalFileService) {
-	readedNodeIDInBytes, errFromReading := fileService.ReadFromFile("/etc/c12s/nodeid")
+	readedNodeIDInBytes, errFromReading := fileService.ReadFromFile(service.C12sFilePath("nodeid"))
 	if errFromReading != nil {
 		log.Fatalln(errFromReading.GetErrorMessage())
 	}
