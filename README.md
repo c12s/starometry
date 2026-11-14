@@ -12,10 +12,12 @@ Starometry supports two types of configurations that can be provided via environ
 | GRPC_PORT | The port number at which the Starometry GRPC server is listening. If there are multiple Starometry agents running, each of them will be assigned a port number starting from GRPC_PORT + 1. | 50055 |
 | NODE_EXPORTER_URL | The address without the port that allows Starometry to communicate with the node-exporter running on the same node. | node_exporter |
 | NODE_EXPORTER_PORT | The port at which the node exporter is running. | 9100 |
-| CADVISOR_URL | The address without the port that allows Starometry to communicate with the cAdvisor running on the same node. | cadvisor |
+| CADVISOR_URL | The address without the port that allows Starometry to communicate with the cAdvisor running on the same node. Leave it unset on nodes without cAdvisor (bootc nodes): Starometry then reports node-exporter metrics only. An unreachable source is skipped; a scrape fails only when no source answers. | cadvisor |
 | CADVISOR_PORT | The port at which the cAdvisor is running. | 8081 |
 | NATS_URL | The address without the port that allows Starometry to communicate with the NATS running on the Control Plane | nats |
 | NATS_PORT | The port at which the Nats is running. | 4222 |
+| NATS_ADDRESS | NATS as `host:port`; when set it wins over `NATS_URL`/`NATS_PORT` (the key bootc nodes use in `node.env`). The client retries the first connect and reconnects forever. | |
+| NODE_ID_DIR_PATH | Directory holding the `nodeid` (and `clusterid`) files written by star. | /var/lib/c12s |
 
 ### Metrics configuration
 | Parameter | Description | Default value |
@@ -25,6 +27,17 @@ Starometry supports two types of configurations that can be provided via environ
 | APP_METRICS_EXTERNAL_CRON_TIMER | Value for the cron job timer that defines how often the scrape for external metrics will be executed. It is important to note that you must add 's' for seconds or 'm' for minutes at the end. | 45s |
 
 Small example of `APP_METRICS_CONFIG` would be: `container_cpu_usage_seconds_total,container_spec_cpu_quota`
+## On bootc nodes
+
+The c12s bootc image (`tools/bootc/Containerfile.bootc`) ships Starometry
+with `prometheus-node-exporter` (127.0.0.1:9100) and runs it as
+`starometry.service`: `NODE_EXPORTER_URL=127.0.0.1`, no cAdvisor, NATS and
+the node-id directory from the same `node.env` files as star, scraped data in
+`/var/lib/starometry/data/`. It starts after star and restarts until star has
+written the node id. protostar's health-check asks every node Magnetar lists
+over NATS (`<nodeid>.metrics`), so bootc nodes appear in Prometheus and
+Grafana with the label `nodeID`.
+
 ## Usage
 
 The Starometry for HTTP requests is, by default, available at [http://localhost:8003](http://localhost:8003). It can be accessed via any tool that allows you to send HTTP requests. For each instance, just add +1 to the port number.
