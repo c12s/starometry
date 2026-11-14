@@ -31,6 +31,11 @@ type UsageMetrics struct {
 	nodeDiskTotal       float64
 	nodeNetworkReceive  float64
 	nodeNetworkTransmit float64
+	// filesystems already counted in this scrape, by device: on a bootc
+	// node one partition is mounted at /sysroot, /var, /etc, ... and would
+	// otherwise be counted once per mount
+	diskSizeSeen map[string]bool
+	diskFreeSeen map[string]bool
 }
 
 // NewUsageMetrics creates a new UsageMetrics instance.
@@ -111,11 +116,11 @@ func (um *UsageMetrics) UpdateUsageMetrics(metric MetricData) {
 	case "node_memory_MemAvailable_bytes":
 		um.nodeRAMAvailable = metric.Value
 	case "node_filesystem_size_bytes":
-		if metric.Labels["fstype"] != "rootfs" {
+		if countFilesystem(metric, &um.diskSizeSeen) {
 			um.nodeDiskTotal += metric.Value
 		}
 	case "node_filesystem_free_bytes":
-		if metric.Labels["fstype"] != "rootfs" {
+		if countFilesystem(metric, &um.diskFreeSeen) {
 			um.nodeDiskUsage += metric.Value
 		}
 
@@ -237,6 +242,34 @@ func (um *UsageMetrics) ResetAllReadedMetrics() {
 	um.nodeNetworkReceive = 0
 	um.nodeNetworkTransmit = 0
 	um.ActiveServices = make(map[string]ServiceUsageMetrics)
+	um.diskSizeSeen = nil
+	um.diskFreeSeen = nil
+}
+
+// pseudoFilesystems hold no disk space of their own.
+var pseudoFilesystems = map[string]bool{
+	"rootfs": true, "tmpfs": true, "devtmpfs": true, "overlay": true,
+	"squashfs": true, "composefs": true, "erofs": true,
+}
+
+// countFilesystem reports whether a node_filesystem_* sample adds to the disk
+// totals: real filesystems only, each device once.
+func countFilesystem(metric MetricData, seen *map[string]bool) bool {
+	if pseudoFilesystems[metric.Labels["fstype"]] {
+		return false
+	}
+	device := metric.Labels["device"]
+	if device == "" {
+		device = metric.Labels["mountpoint"]
+	}
+	if *seen == nil {
+		*seen = map[string]bool{}
+	}
+	if (*seen)[device] {
+		return false
+	}
+	(*seen)[device] = true
+	return true
 }
 
 func calculateNodeCPUUsagePercentage(nodeCPUUser, nodeCPUSystem, nodeCPUTotal float64) float64 {
