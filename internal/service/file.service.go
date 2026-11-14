@@ -48,6 +48,9 @@ func (fs *LocalFileService) ReadFromFile(filename string) ([]byte, *errors.Error
 }
 
 func (fs *LocalFileService) writeFile(filename string, data []byte, flag int) error {
+	if err := os.MkdirAll(filepath.Dir(filename), 0755); err != nil {
+		return err
+	}
 	file, err := os.OpenFile(filename, flag, 0644)
 	if err != nil {
 		return err

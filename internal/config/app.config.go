@@ -1,6 +1,9 @@
 package config
 
-import "os"
+import (
+	"os"
+	"strings"
+)
 
 type AppConfig struct {
 	serverPort       string
@@ -14,9 +17,9 @@ type AppConfig struct {
 func NewAppConfigFromEnv() *AppConfig {
 	return &AppConfig{
 		serverPort:       os.Getenv("APP_PORT"),
-		nodeExporterAddr: os.Getenv("NODE_EXPORTER_URL") + ":" + os.Getenv("NODE_EXPORTER_PORT"),
-		cAdvisorAddr:     os.Getenv("CADVISOR_URL") + ":" + os.Getenv("CADVISOR_PORT"),
-		natsAddr:         os.Getenv("NATS_URL") + ":" + os.Getenv("NATS_PORT"),
+		nodeExporterAddr: hostPort("NODE_EXPORTER_URL", "NODE_EXPORTER_PORT"),
+		cAdvisorAddr:     hostPort("CADVISOR_URL", "CADVISOR_PORT"),
+		natsAddr:         natsAddress(),
 		grpcPort:         os.Getenv("GRPC_PORT"),
 		nodeID:           "",
 	}
@@ -47,8 +50,28 @@ func (ap *AppConfig) GetNodeID() string {
 }
 
 func (ap *AppConfig) SetNodeID(nodeID string) {
+	nodeID = strings.TrimSpace(nodeID)
 	if nodeID == "" {
 		return
 	}
 	ap.nodeID = nodeID
+}
+
+// hostPort joins a host and a port variable; an unset host means the source
+// is not configured (bootc nodes run node-exporter but no cAdvisor).
+func hostPort(hostVar, portVar string) string {
+	host := os.Getenv(hostVar)
+	if host == "" {
+		return ""
+	}
+	return host + ":" + os.Getenv(portVar)
+}
+
+// natsAddress prefers NATS_ADDRESS (host:port, the key star and the bootc
+// image's node.env use) over the NATS_URL/NATS_PORT pair.
+func natsAddress() string {
+	if addr := strings.TrimSpace(os.Getenv("NATS_ADDRESS")); addr != "" {
+		return addr
+	}
+	return os.Getenv("NATS_URL") + ":" + os.Getenv("NATS_PORT")
 }
