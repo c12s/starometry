@@ -59,7 +59,7 @@ func (m *MetricsService) GetLatestMetrics() (*models.MetricFileFormat, *errors.E
 		metrics.Metrics = append(metrics.Metrics, metricsExternal.Metrics...)
 	}
 	metrics.NodeId = m.NodeID
-	clusterId, err := m.FileService.ReadFromFile("/etc/c12s/clusterid")
+	clusterId, err := m.FileService.ReadFromFile(C12sFilePath("clusterid"))
 	if err != nil {
 		log.Println(err)
 	}
@@ -68,7 +68,7 @@ func (m *MetricsService) GetLatestMetrics() (*models.MetricFileFormat, *errors.E
 }
 
 func (m *MetricsService) WriteMetricsFromExternalApplication(metrics []models.MetricData) *errors.ErrorStruct {
-	clusterId, err := m.FileService.ReadFromFile("/etc/c12s/clusterid")
+	clusterId, err := m.FileService.ReadFromFile(C12sFilePath("clusterid"))
 	if err != nil {
 		log.Println(err)
 	}
@@ -91,26 +91,14 @@ func (m *MetricsService) WriteMetricsFromExternalApplication(metrics []models.Me
 }
 
 func (m *MetricsService) GetMetrics() *errors.ErrorStruct {
-	byteQueryResultsFromCAdvisor, err := m.SendExternalGetRequestToMetricsEndpoint(m.AppConfig.GetCAdvisorAddress())
-	if err != nil {
-		log.Println("Byte query result from cAdvisor", err.GetErrorMessage())
-		return err
-	}
-	actualMetricsValueFromCAdvisor, err := m.CastResultsFromBytesToActualValue(byteQueryResultsFromCAdvisor, "cAdvisor")
+	mergedSlicesForMetrics, err := m.scrapeSources([]metricsSource{
+		{name: "cAdvisor", address: m.AppConfig.GetCAdvisorAddress()},
+		{name: "node-exporter", address: m.AppConfig.GetNodeExporterAddress()},
+	})
 	if err != nil {
 		return err
 	}
-	byteQueryResultsFromNodeExporter, err := m.SendExternalGetRequestToMetricsEndpoint(m.AppConfig.GetNodeExporterAddress())
-	if err != nil {
-		log.Println("Byte query result from cAdvisor", err.GetErrorMessage())
-		return err
-	}
-	actualMetricsValueFromNodeExporter, err := m.CastResultsFromBytesToActualValue(byteQueryResultsFromNodeExporter, "node-exporter")
-	if err != nil {
-		return err
-	}
-	mergedSlicesForMetrics := append(*actualMetricsValueFromCAdvisor, *actualMetricsValueFromNodeExporter...)
-	clusterId, err := m.FileService.ReadFromFile("/etc/c12s/clusterid")
+	clusterId, err := m.FileService.ReadFromFile(C12sFilePath("clusterid"))
 	if err != nil {
 		log.Println(err)
 	}
@@ -234,4 +222,45 @@ func (ms MetricsService) SendExternalGetRequestToMetricsEndpoint(url string) ([]
 		return nil, errors.NewError(err.Error(), 500)
 	}
 	return body, nil
+}
+
+type metricsSource struct {
+	name    string
+	address string
+}
+
+// scrapeSources reads every configured source. A source that is not
+// configured (empty address) or not reachable is skipped, so a node without
+// cAdvisor still reports its node-exporter metrics; it fails only when no
+// source answered.
+func (m *MetricsService) scrapeSources(sources []metricsSource) ([]models.MetricData, *errors.ErrorStruct) {
+	var merged []models.MetricData
+	var lastErr *errors.ErrorStruct
+	answered := 0
+	for _, src := range sources {
+		if src.address == "" {
+			continue
+		}
+		raw, err := m.SendExternalGetRequestToMetricsEndpoint(src.address)
+		if err != nil {
+			log.Printf("scraping %s at %s: %s", src.name, src.address, err.GetErrorMessage())
+			lastErr = err
+			continue
+		}
+		values, err := m.CastResultsFromBytesToActualValue(raw, src.name)
+		if err != nil {
+			log.Printf("parsing %s metrics: %s", src.name, err.GetErrorMessage())
+			lastErr = err
+			continue
+		}
+		merged = append(merged, *values...)
+		answered++
+	}
+	if answered == 0 {
+		if lastErr == nil {
+			lastErr = errors.NewError("no metrics source configured (NODE_EXPORTER_URL, CADVISOR_URL)", 500)
+		}
+		return nil, lastErr
+	}
+	return merged, nil
 }
